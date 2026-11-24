@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0f1115">
+<meta name="mobile-web-app-capable" content="yes">
+<title>קריפטו ↔ ETF</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23f7931a'/%3E%3Ctext x='32' y='44' font-size='34' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'%3E%E2%82%BF%3C/text%3E%3C/svg%3E">
+<style>
+:root{--bg:#0f1115;--card:#181b22;--line:#262a33;--ink:#eef0f4;--mute:#8b92a1;--btc:#f7931a;--eth:#8c9eff;--up:#3ecf8e;--down:#ff6b6b}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Arial,sans-serif;padding:14px 14px 40px;max-width:560px;margin-inline:auto}
+h1{font-size:20px;margin:4px 0 2px}
+.sub{color:var(--mute);font-size:13px;margin-bottom:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.row{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:4px 0}
+.lbl{color:var(--mute);font-size:14px}
+.num{direction:ltr;unicode-bidi:isolate;font-variant-numeric:tabular-nums;white-space:nowrap}
+.big{font-size:26px;font-weight:700}
+.hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.tag{font-weight:700;font-size:15px}
+.btc .tag{color:var(--btc)}.eth .tag{color:var(--eth)}
+.pill{font-size:12px;padding:3px 8px;border-radius:99px;background:#232733;color:var(--mute)}
+.pill.open{background:#123326;color:var(--up)}
+.note{font-size:12px;color:var(--mute);margin-top:6px}
+.up{color:var(--up)}.down{color:var(--down)}
+.seg{display:flex;background:#11141a;border:1px solid var(--line);border-radius:10px;padding:3px;margin-bottom:12px}
+.seg button{flex:1;border:0;background:none;color:var(--mute);font:inherit;font-weight:600;padding:10px;border-radius:8px;min-height:44px}
+.seg button.on{background:var(--line);color:var(--ink)}
+label{display:block;font-size:13px;color:var(--mute);margin:8px 0 4px}
+input{width:100%;font:inherit;font-size:20px;padding:12px;border-radius:10px;border:1px solid var(--line);background:#0c0e12;color:var(--ink);direction:ltr;text-align:left}
+input:focus{outline:2px solid var(--btc);border-color:transparent}
+.swap{text-align:center;color:var(--mute);font-size:18px;margin:4px 0 -2px}
+.btn{border:1px solid var(--line);background:#11141a;color:var(--ink);font:inherit;padding:10px 14px;border-radius:10px;min-height:44px}
+.bar{display:flex;gap:8px;justify-content:space-between;align-items:center}
+.err{color:var(--down);font-size:13px;margin-top:6px}
+details summary{color:var(--mute);font-size:14px;cursor:pointer;padding:6px 0}
+</style>
+</head>
+<body>
+<div class="bar">
+  <div><h1>קריפטו ↔ ETF</h1><div class="sub" id="upd">טוען…</div></div>
+  <button class="btn" id="refresh">רענן</button>
+</div>
+
+<div id="cards"></div>
+
+<div class="card">
+  <div class="tag" style="margin-bottom:8px">מחשבון יעד</div>
+  <div class="seg"><button data-a="BTC" class="on">BTC → IBIT</button><button data-a="ETH">ETH → ETHA</button></div>
+  <label id="l1">מחיר יעד ל-BTC ($)</label>
+  <input id="in1" inputmode="decimal" placeholder="למשל 150000">
+  <div class="swap">⇅</div>
+  <label id="l2">מחיר מקביל ב-IBIT ($)</label>
+  <input id="in2" inputmode="decimal" placeholder="או הקלד מחיר תעודה">
+  <div class="note" id="calcNote"></div>
+</div>
+
+<details class="card" id="set">
+  <summary>הגדרות (מפתח Finnhub)</summary>
+  <label>Finnhub API key (חינמי, finnhub.io)</label>
+  <input id="key" placeholder="הדבק כאן" autocomplete="off">
+  <button class="btn" id="saveKey" style="margin-top:8px">שמור</button>
+  <div class="note">המפתח נשמר רק בדפדפן שלך.</div>
+</details>
+
+<script>
+{
+const A={BTC:{etf:'IBIT',sym:'BTCUSDT',cb:'BTC-USD',cls:'btc'},ETH:{etf:'ETHA',sym:'ETHUSDT',cb:'ETH-USD',cls:'eth'}};
+const S={};let asset='BTC',last='1';
+const $=id=>document.getElementById(id);
+const ls={get:k=>{try{return localStorage.getItem(k)||''}catch(e){return''}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
+const usd=(v,d)=>v==null||!isFinite(v)?'—':'$'+v.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+const pct=v=>(v>=0?'+':'')+v.toFixed(2)+'%';
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const j=async u=>{const r=await fetch(u);if(!r.ok)throw new Error(r.status);return r.json()};
+const nyTime=t=>new Date(t*1000).toLocaleString('he-IL',{timeZone:'America/New_York',weekday:'short',hour:'2-digit',minute:'2-digit'});
+
+async function spot(a){
+  try{const d=await j(`https://api.binance.com/api/v3/ticker/price?symbol=${A[a].sym}`);return +d.price}
+  catch(e){const d=await j(`https://api.coinbase.com/v2/prices/${A[a].cb}/spot`);return +d.data.amount}
+}
+async function priceAt(a,t){ // crypto close of the 1-min candle at unix sec t
+  const m=Math.floor(t/60)*60;
+  try{const d=await j(`https://api.binance.com/api/v3/klines?symbol=${A[a].sym}&interval=1m&startTime=${m*1000}&limit=1`);if(d.length)return +d[0][4]}catch(e){}
+  const s=new Date(m*1000).toISOString(),e=new Date((m+60)*1000).toISOString();
+  const d=await j(`https://api.exchange.coinbase.com/products/${A[a].cb}/candles?granularity=60&start=${s}&end=${e}`);
+  if(d.length)return +d[d.length-1][4];throw new Error('no candle');
+}
+async function load(a,key){
+  const o={err:''};
+  o.c=await spot(a);
+  if(!key){o.err='הוסף מפתח Finnhub בהגדרות כדי לראות את מחיר התעודה';return o}
+  const q=await j(`https://finnhub.io/api/v1/quote?symbol=${A[a].etf}&token=${encodeURIComponent(key)}`);
+  if(!q||!q.c)throw new Error('Finnhub');
+  o.e=q.c;o.pc=q.pc;o.t=q.t;
+  o.live=Date.now()/1000-q.t<15*60;
+  o.cAt=o.live?o.c:await priceAt(a,q.t);   // crypto at the ETF's last print
+  o.r=o.e/o.cAt;                            // ETF $ per 1 coin
+  o.imp=o.c*o.r;                            // implied ETF price now
+  return o;
+}
+function card(a){
+  const o=S[a],x=A[a];if(!o)return'';
+  if(o.fail)return `<div class="card ${x.cls}"><div class="tag">${a}</div><div class="err">${esc(o.fail)}</div></div>`;
+  let h=`<div class="card ${x.cls}"><div class="hd"><span class="tag">${a} / ${x.etf}</span>`;
+  if(o.r)h+=`<span class="pill ${o.live?'open':''}">${o.live?'בורסה פתוחה':'בורסה סגורה'}</span>`;
+  h+=`</div><div class="row"><span class="lbl">${a} עכשיו</span><span class="num big">${usd(o.c,a=='BTC'?0:2)}</span></div>`;
+  if(o.r){
+    const ch=(o.imp/o.e-1)*100,chPc=o.pc?(o.imp/o.pc-1)*100:null;
+    h+=`<div class="row"><span class="lbl">${x.etf} ${o.live?'עכשיו':'מחיר משוער'}</span><span class="num big">${usd(o.imp,2)}</span></div>`;
+    if(!o.live)h+=`<div class="row"><span class="lbl">שינוי מהעסקה האחרונה (${usd(o.e,2)})</span><span class="num ${ch>=0?'up':'down'}">${pct(ch)}</span></div>`;
+    if(chPc!=null)h+=`<div class="row"><span class="lbl">ביחס לסגירה הקודמת</span><span class="num ${chPc>=0?'up':'down'}">${pct(chPc)}</span></div>`;
+    h+=`<div class="note">יחס: 1 ${a} ≈ <span class="num">${(1/o.r).toLocaleString('en-US',{maximumFractionDigits:1})}</span> יחידות ${x.etf} ·${a} במחיר ${'<span class="num">'+usd(o.cAt,0)+'</span>'}${o.live?'':' בעסקה האחרונה ('+esc(nyTime(o.t))+' NY)'}</div>`;
+  }
+  if(o.err)h+=`<div class="err">${esc(o.err)}</div>`;
+  return h+'</div>';
+}
+function render(){$('cards').innerHTML=card('BTC')+card('ETH');calc()}
+function calc(){
+  const o=S[asset],x=A[asset];
+  $('l1').textContent=`מחיר יעד ל-${asset} ($)`;$('l2').textContent=`מחיר מקביל ב-${x.etf} ($)`;
+  if(!o||!o.r){$('calcNote').textContent='ממתין ליחס (צריך מפתח Finnhub)';return}
+  const v1=parseFloat($('in1').value.replace(/,/g,'')),v2=parseFloat($('in2').value.replace(/,/g,''));
+  if(last=='1'){$('in2').value=isFinite(v1)?(v1*o.r).toFixed(2):''}
+  else{$('in1').value=isFinite(v2)?(v2/o.r).toFixed(asset=='BTC'?0:2):''}
+  const v=last=='1'?v1:v2/o.r;
+  $('calcNote').textContent=isFinite(v)?`${v>=o.c?'+':''}${((v/o.c-1)*100).toFixed(2)}% מהמחיר הנוכחי של ${asset}`:'';
+}
+async function refresh(){
+  $('upd').textContent='מעדכן…';const key=ls.get('fh');
+  await Promise.all(['BTC','ETH'].map(async a=>{try{S[a]=await load(a,key)}catch(e){S[a]={fail:'שגיאה בטעינת נתונים ('+e.message+')'}}}));
+  render();$('upd').textContent='עודכן '+new Date().toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+document.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.seg button').forEach(c=>c.classList.toggle('on',c==b));asset=b.dataset.a;$('in1').value='';$('in2').value='';calc()});
+$('in1').oninput=()=>{last='1';calc()};$('in2').oninput=()=>{last='2';calc()};
+$('refresh').onclick=refresh;
+$('key').value=ls.get('fh');if(!ls.get('fh'))$('set').open=true;
+$('saveKey').onclick=()=>{ls.set('fh',$('key').value.trim());$('set').open=false;refresh()};
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()});
+refresh();setInterval(refresh,30000);
+}
+</script>
+</body>
+</html>
